@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -19,7 +21,7 @@ type point struct {
 }
 
 type state struct {
-	lock           sync.Mutex
+	sync.Mutex
 	unparsed       []byte
 	Newpoints      []point `json:"Newpoints"`
 	SerialIsOnline bool    `json:"SerialIsOnline"`
@@ -27,14 +29,27 @@ type state struct {
 
 var State state
 
+func mock_update_points() {
+	State.SerialIsOnline = true
+	var t float32 = 0
+	var step float32 = 0.2
+	for {
+		time.Sleep(time.Millisecond * 10)
+		State.Lock()
+		State.Newpoints = append(State.Newpoints, point{t, float32(math.Sin(float64(t)))})
+		State.Unlock()
+		t += step
+	}
+}
+
 func update_points() {
 	var err error
 	var ser serial.Port
 	buf := make([]byte, 4100)
 	for {
-		State.lock.Lock()
+		State.Lock()
 		cond := State.SerialIsOnline
-		State.lock.Unlock()
+		State.Unlock()
 
 		if !cond {
 			ser, err = init_serial()
@@ -49,16 +64,17 @@ func update_points() {
 		if err != nil {
 			log.Println("Error al leer el serial:", err)
 			ser.Close()
-			State.lock.Lock()
+			State.Lock()
 			State.SerialIsOnline = false
-			State.lock.Unlock()
+			State.Unlock()
 			time.Sleep(time.Second)
 			continue
 		}
-		State.lock.Lock()
+		State.Lock()
 		State.SerialIsOnline = true
 		State.unparsed = append(State.unparsed, buf[0:n]...)
-		State.lock.Unlock()
+		State.Newpoints, State.unparsed = scanPoints(State.Newpoints, State.unparsed)
+		State.Unlock()
 	}
 }
 
@@ -82,9 +98,8 @@ func init_serial() (serial.Port, error) {
 }
 
 func handler(w http.ResponseWriter, req *http.Request) {
-	State.lock.Lock()
-	State.Newpoints, State.unparsed = scanPoints([]point{}, State.unparsed)
-	b, err := json.Marshal(State)
+	State.Lock()
+	b, err := json.Marshal(&State)
 	if err != nil {
 		log.Println(err)
 	}
@@ -93,7 +108,7 @@ func handler(w http.ResponseWriter, req *http.Request) {
 		log.Println(err)
 	}
 	State.Newpoints = State.Newpoints[0:0]
-	State.lock.Unlock()
+	State.Unlock()
 }
 
 // pure function
@@ -113,12 +128,16 @@ func scanPoints(bag []point, input []byte) (out []point, rest []byte) {
 }
 
 func main() {
-	go update_points()
+	if len(os.Args) > 1 && os.Args[1] == "-mock" {
+		go mock_update_points()
+	} else {
+		go update_points()
+	}
 
 	http.HandleFunc("/newpoints", handler)
 	http.Handle("/", http.FileServer(http.Dir("./static")))
 
-	log.Println("Empezando el server en http://localhols:8080/")
+	log.Println("Empezando el server en http://localhost:8080/")
 	err := http.ListenAndServe("localhost:8080", nil)
 	if err != nil {
 		log.Printf("Error en el server: %s", err)
