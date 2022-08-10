@@ -106,15 +106,12 @@ subscriptions _ =
 view : Model -> Html Msg
 view model =
     div
-        [ style "height" "400px"
-        , style "width" "600px"
-        , style "margin" "50px"
+        [ id "chartcontainer"
         ]
         [ text model.cmd
         , C.chart
-            [ CA.height 300
-            , CA.width 300
-            ]
+            [ CA.height 360
+            , CA.width 480]
             [ C.xAxis []
             , C.xTicks []
             , C.xLabels []
@@ -122,7 +119,7 @@ view model =
             , C.yTicks []
             , C.yLabels []
             , C.series .x
-                [ C.scatter .y [] ]
+                [ C.interpolated .y [] [] ]
                 model.points
             ]
         ]
