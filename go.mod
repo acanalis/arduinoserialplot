@@ -1,4 +1,4 @@
-module arduinoserialplot
+module serialplot-mwe
 
 go 1.16
 
