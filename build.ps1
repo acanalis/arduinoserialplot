@@ -1,3 +1,4 @@
-elm make --output static/main.js src/elm/Main.elm
+elm make src/elm/Main.elm --output static/main.js --debug
 go build -o server.exe "./src/go/server.go" 
-./server.exe
+./server.exe -mock
+
