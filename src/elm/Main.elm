@@ -72,12 +72,20 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         NewSeries ->
-            ( { model | series = List.append model.series [ Series model.currentpoint.x [] ] }
+            ( { model | series = Series model.currentpoint.x [] :: model.series }
             , Cmd.none
             )
 
         ResetSeries ->
-            ( { model | series = List.indexedMap (\i s -> if i==List.length model.series-1 then Series model.currentpoint.x [] else s) model.series }
+            ( { model
+                | series =
+                    case model.series of
+                        h :: t ->
+                            { h | points = [], offset = model.currentpoint.x } :: t
+
+                        _ ->
+                            []
+              }
             , Cmd.none
             )
 
@@ -102,21 +110,14 @@ update msg model =
 
 updatePoints : Model -> List Point -> Model
 updatePoints model newpoints =
-    let
-        last =
-            List.length model.series
-    in
     { model
         | series =
-            List.indexedMap
-                (\i s ->
-                    if i == last - 1 then
-                        { s | points = s.points ++ List.map (\p -> { p | x = p.x - s.offset }) newpoints }
+            case model.series of
+                h :: t ->
+                    { h | points = h.points ++ List.map (\p -> { p | x = p.x - h.offset }) newpoints } :: t
 
-                    else
-                        s
-                )
-                model.series
+                _ ->
+                    []
         , currentpoint = List.head (List.reverse newpoints) |> withDefault model.currentpoint
     }
 
@@ -181,19 +182,15 @@ view model =
 
 viewSeries : Model -> List (C.Element Point msg)
 viewSeries model =
-    let
-        last =
-            List.length model.series
-    in
     List.indexedMap
         (\i serie ->
             C.series .x
                 [ C.interpolated .y
-                    (if i == last - 1 then
-                        [ CA.width 2, defaultColors i ]
+                    (if i == 0 then
+                        [ CA.width 2, defaultColors (List.length model.series - i) ]
 
                      else
-                        [ CA.width 0.5, defaultColors i ]
+                        [ CA.width 0.5, defaultColors (List.length model.series - i) ]
                     )
                     []
                 ]
