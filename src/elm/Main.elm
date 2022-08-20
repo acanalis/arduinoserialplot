@@ -4,6 +4,7 @@ import Browser
 import Chart as C
 import Chart.Attributes as CA
 import Chart.Events as CE
+import File.Download
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
@@ -62,7 +63,7 @@ init () =
     ( Model (Point 0 0)
         { offset = Nothing
         , points = []
-        , data = {name = "Serie 0", marker = {x = 0, y = Nothing}}
+        , data = { name = "Serie 0", marker = { x = 0, y = Nothing } }
         }
         []
         "inicio"
@@ -77,6 +78,7 @@ type Msg
     | ResetSeries
     | DataNameMsg String
     | DataMoveMarkerMsg CE.Point
+    | DownloadFile
 
 
 type alias ServerMsg =
@@ -140,6 +142,9 @@ update msg model =
         DataMoveMarkerMsg point ->
             ( { model | currentseries = updateDataMarker model.currentseries point }, Cmd.none )
 
+        DownloadFile ->
+            ( model, File.Download.string "results.csv" "text/plain" (toCSV model) )
+
 
 updatePoints : Series -> List Point -> Series
 updatePoints series newpoints =
@@ -176,6 +181,21 @@ interp points marker =
 
         _ ->
             Nothing
+
+
+toCSV : Model -> String
+toCSV model =
+    List.foldl (\s acc -> seriesToCSV s ++ acc) "" (model.currentseries :: model.series)
+
+
+seriesToCSV : Series -> String
+seriesToCSV series =
+    ""
+        ++ ("\"" ++ series.data.name ++ "_x\",")
+        ++ List.foldl (\p acc -> "\"" ++ String.fromFloat p.x ++ "\"," ++ acc) "" series.points
+        ++ ("\u{000D}\n\"" ++ series.data.name ++ "_y\",")
+        ++ List.foldl (\p acc -> "\"" ++ String.fromFloat p.y ++ "\"," ++ acc) "" series.points
+        ++ "\u{000D}\n"
 
 
 serverResponseDecoder : Dec.Decoder ServerMsg
@@ -247,6 +267,7 @@ view model =
                    )
             )
         , input [ type_ "text", placeholder "Name", value model.currentseries.data.name, onInput DataNameMsg ] []
+        , input [ type_ "button", value "Descargar Datos", Html.Events.onClick DownloadFile ] []
         ]
 
 
