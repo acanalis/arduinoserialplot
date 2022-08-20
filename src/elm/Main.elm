@@ -3,6 +3,7 @@ module Main exposing (..)
 import Browser
 import Chart as C
 import Chart.Attributes as CA
+import Chart.Events as CE
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
@@ -38,7 +39,13 @@ type alias Point =
 type alias Series =
     { offset : Maybe Float
     , points : List Point
-    , data : String
+    , data : SeriesData
+    }
+
+
+type alias SeriesData =
+    { name : String
+    , marker : { x : Float, y : Maybe Float }
     }
 
 
@@ -55,7 +62,7 @@ init () =
     ( Model (Point 0 0)
         { offset = Nothing
         , points = []
-        , data = "Serie 0"
+        , data = {name = "Serie 0", marker = {x = 0, y = Nothing}}
         }
         []
         "inicio"
@@ -68,7 +75,8 @@ type Msg
     | ServerResponse (Result Http.Error ServerMsg)
     | NewSeries
     | ResetSeries
-    | DataMsg String
+    | DataNameMsg String
+    | DataMoveMarkerMsg CE.Point
 
 
 type alias ServerMsg =
@@ -85,7 +93,7 @@ update msg model =
                 | currentseries =
                     { offset = Just model.currentpoint.x
                     , points = []
-                    , data = "Serie N°" ++ String.fromInt (List.length model.series + 1)
+                    , data = { name = "Serie N°" ++ String.fromInt (List.length model.series + 1), marker = { x = 0, y = Nothing } }
                     }
                 , series = model.currentseries :: model.series
               }
@@ -97,7 +105,7 @@ update msg model =
                 | currentseries =
                     { offset = Just model.currentpoint.x
                     , points = []
-                    , data = model.currentseries.data
+                    , data = { name = model.currentseries.data.name, marker = { x = 0, y = Nothing } }
                     }
               }
             , Cmd.none
@@ -124,10 +132,14 @@ update msg model =
             , Http.get { url = "http://localhost:8080/newpoints", expect = Http.expectJson ServerResponse serverResponseDecoder }
             )
 
-        DataMsg data ->
-            ( { model | currentseries = updateData model.currentseries data }
+        DataNameMsg newname ->
+            ( { model | currentseries = updateDataName model.currentseries newname }
             , Cmd.none
             )
+
+        DataMoveMarkerMsg point ->
+            ( { model | currentseries = updateDataMarker model.currentseries point }, Cmd.none )
+
 
 updatePoints : Series -> List Point -> Series
 updatePoints series newpoints =
@@ -135,14 +147,36 @@ updatePoints series newpoints =
         ( Just offset, _ ) ->
             { series | points = series.points ++ List.map (\p -> { p | x = p.x - offset }) newpoints }
 
-        ( Nothing, h :: t ) ->
+        ( Nothing, h :: _ ) ->
             { series | offset = Just h.x, points = List.map (\p -> { p | x = p.x - h.x }) newpoints }
 
         ( _, _ ) ->
             series
 
-updateData : Series -> String -> Series 
-updateData series data = {series | data = data} 
+
+updateDataName : Series -> String -> Series
+updateDataName series name =
+    { series | data = { name = name, marker = series.data.marker } }
+
+
+updateDataMarker : Series -> CE.Point -> Series
+updateDataMarker series point =
+    { series | data = { name = series.data.name, marker = { x = point.x, y = interp series.points point.x } } }
+
+
+interp : List Point -> Float -> Maybe Float
+interp points marker =
+    case points of
+        a :: b :: c ->
+            if a.x < marker && marker < b.x then
+                Just <| a.y + (b.y - a.y) * (marker - a.x) / (b.x - a.x)
+
+            else
+                interp (b :: c) marker
+
+        _ ->
+            Nothing
+
 
 serverResponseDecoder : Dec.Decoder ServerMsg
 serverResponseDecoder =
@@ -183,6 +217,7 @@ view model =
                     [ CA.lowest 0 CA.orLower
                     , CA.highest 30 CA.orHigher
                     ]
+                , CE.onMouseDown DataMoveMarkerMsg CE.getCoords
                 ]
                 ([ C.xAxis []
                  , C.xTicks []
@@ -199,7 +234,19 @@ view model =
             , button [ onClick ResetSeries ] [ text "Resetear Serie" ]
             ]
         , text model.status
-        , input [ type_ "text", placeholder "Name", value model.currentseries.data, onInput DataMsg ] []
+        , text
+            ("Marker Value: x ="
+                ++ String.fromFloat model.currentseries.data.marker.x
+                ++ ", y ="
+                ++ (case model.currentseries.data.marker.y of
+                        Just value ->
+                            String.fromFloat value
+
+                        Nothing ->
+                            "Out of range"
+                   )
+            )
+        , input [ type_ "text", placeholder "Name", value model.currentseries.data.name, onInput DataNameMsg ] []
         ]
 
 
@@ -217,7 +264,15 @@ viewSeries model =
             )
             model.series
         )
-        [ C.series .x
+        [ C.line
+            [ CA.x1 model.currentseries.data.marker.x
+            , CA.x2 model.currentseries.data.marker.x
+            , CA.y1 0
+            , CA.y2 30
+            , CA.width 2
+            , CA.color "#000000"
+            ]
+        , C.series .x
             [ C.interpolated .y [ CA.width 2, CA.color CA.red ] [] ]
             model.currentseries.points
         ]
