@@ -36,13 +36,15 @@ type alias Point =
 
 
 type alias Series =
-    { offset : Float
+    { offset : Maybe Float
     , points : List Point
+    , data : String
     }
 
 
 type alias Model =
     { currentpoint : Point
+    , currentseries : Series
     , series : List Series
     , status : String
     }
@@ -50,7 +52,13 @@ type alias Model =
 
 init : () -> ( Model, Cmd Msg )
 init () =
-    ( Model (Point 0 0) [] "inicio"
+    ( Model (Point 0 0)
+        { offset = Nothing
+        , points = []
+        , data = "Serie 0"
+        }
+        []
+        "inicio"
     , Cmd.none
     )
 
@@ -60,6 +68,7 @@ type Msg
     | ServerResponse (Result Http.Error ServerMsg)
     | NewSeries
     | ResetSeries
+    | DataMsg String
 
 
 type alias ServerMsg =
@@ -72,19 +81,24 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         NewSeries ->
-            ( { model | series = Series model.currentpoint.x [] :: model.series }
+            ( { model
+                | currentseries =
+                    { offset = Just model.currentpoint.x
+                    , points = []
+                    , data = "Serie N°" ++ String.fromInt (List.length model.series + 1)
+                    }
+                , series = model.currentseries :: model.series
+              }
             , Cmd.none
             )
 
         ResetSeries ->
             ( { model
-                | series =
-                    case model.series of
-                        h :: t ->
-                            { h | points = [], offset = model.currentpoint.x } :: t
-
-                        _ ->
-                            []
+                | currentseries =
+                    { offset = Just model.currentpoint.x
+                    , points = []
+                    , data = model.currentseries.data
+                    }
               }
             , Cmd.none
             )
@@ -97,8 +111,11 @@ update msg model =
                 Nothing ->
                     ( { model | status = "no se recibieron nuevos puntos" }, Cmd.none )
 
-                Just pointlist ->
-                    ( updatePoints model pointlist
+                Just newpoints ->
+                    ( { model
+                        | currentseries = updatePoints model.currentseries newpoints
+                        , currentpoint = List.head (List.reverse newpoints) |> withDefault model.currentpoint
+                      }
                     , Cmd.none
                     )
 
@@ -107,20 +124,25 @@ update msg model =
             , Http.get { url = "http://localhost:8080/newpoints", expect = Http.expectJson ServerResponse serverResponseDecoder }
             )
 
+        DataMsg data ->
+            ( { model | currentseries = updateData model.currentseries data }
+            , Cmd.none
+            )
 
-updatePoints : Model -> List Point -> Model
-updatePoints model newpoints =
-    { model
-        | series =
-            case model.series of
-                h :: t ->
-                    { h | points = h.points ++ List.map (\p -> { p | x = p.x - h.offset }) newpoints } :: t
+updatePoints : Series -> List Point -> Series
+updatePoints series newpoints =
+    case ( series.offset, newpoints ) of
+        ( Just offset, _ ) ->
+            { series | points = series.points ++ List.map (\p -> { p | x = p.x - offset }) newpoints }
 
-                _ ->
-                    []
-        , currentpoint = List.head (List.reverse newpoints) |> withDefault model.currentpoint
-    }
+        ( Nothing, h :: t ) ->
+            { series | offset = Just h.x, points = List.map (\p -> { p | x = p.x - h.x }) newpoints }
 
+        ( _, _ ) ->
+            series
+
+updateData : Series -> String -> Series 
+updateData series data = {series | data = data} 
 
 serverResponseDecoder : Dec.Decoder ServerMsg
 serverResponseDecoder =
@@ -177,26 +199,28 @@ view model =
             , button [ onClick ResetSeries ] [ text "Resetear Serie" ]
             ]
         , text model.status
+        , input [ type_ "text", placeholder "Name", value model.currentseries.data, onInput DataMsg ] []
         ]
 
 
 viewSeries : Model -> List (C.Element Point msg)
 viewSeries model =
-    List.indexedMap
-        (\i serie ->
-            C.series .x
-                [ C.interpolated .y
-                    (if i == 0 then
-                        [ CA.width 2, defaultColors (List.length model.series - i) ]
-
-                     else
+    List.append
+        (List.indexedMap
+            (\i serie ->
+                C.series .x
+                    [ C.interpolated .y
                         [ CA.width 0.5, defaultColors (List.length model.series - i) ]
-                    )
-                    []
-                ]
-                serie.points
+                        []
+                    ]
+                    serie.points
+            )
+            model.series
         )
-        model.series
+        [ C.series .x
+            [ C.interpolated .y [ CA.width 2, CA.color CA.red ] [] ]
+            model.currentseries.points
+        ]
 
 
 defaultColors : Int -> CA.Attribute { a | color : String }
